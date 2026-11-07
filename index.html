@@ -204,6 +204,8 @@ async function fetchChessCom(user, onProg) {
     for (let k = mg.length - 1; k >= 0; k--) {
       const g = mg[k]; if (g.rules !== "chess") continue;
       const meWhite = (g.white.username || "").toLowerCase() === u;
+      const oppName = (meWhite ? g.black.username : g.white.username) || "";
+      if (/bot\d*$/i.test(oppName)) continue;   // best-effort: skip bot accounts (…Bot)
       const me = meWhite ? g.white : g.black;
       const result = me.result === "win" ? "win"
         : ["checkmated", "resigned", "timeout", "abandoned", "lose", "bughousepartnerlose"].includes(me.result) ? "loss" : "draw";
@@ -252,7 +254,10 @@ async function fetchLichess(user, onProg) {
     let g; try { g = JSON.parse(line); } catch (e) { continue; }
     const w = g.players && g.players.white, b = g.players && g.players.black;
     const nm = s => s && s.user && s.user.name && s.user.name.toLowerCase();
+    if ((w && w.aiLevel) || (b && b.aiLevel)) continue;            // Stockfish AI game
     const meWhite = nm(w) === u;
+    const opp0 = meWhite ? b : w;
+    if (opp0 && opp0.user && opp0.user.title === "BOT") continue;  // bot account
     const me = meWhite ? w : b;
     const result = !g.winner ? "draw" : (g.winner === (meWhite ? "white" : "black") ? "win" : "loss");
     const dur = g.lastMoveAt && g.createdAt ? (g.lastMoveAt - g.createdAt) / 1000 : null;
