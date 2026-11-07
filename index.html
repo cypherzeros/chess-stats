@@ -263,13 +263,15 @@ function compute(games) {
   const s = {
     n: games.length, w: 0, d: 0, l: 0,
     col: { white: { w: 0, d: 0, l: 0 }, black: { w: 0, d: 0, l: 0 } },
-    openings: {}, speeds: {}, wd: Array(7).fill(0), totalSec: 0, timedGames: 0, longest: 0,
+    openings: {}, ow: {}, ob: {}, speeds: {}, wd: Array(7).fill(0), totalSec: 0, timedGames: 0, longest: 0,
   };
   const asc = games.slice().sort((a, b) => a.end - b.end);
   for (const g of games) {
     const r = rkey(g.result); s[r]++; s.col[g.color][r]++;
     const o = s.openings[g.opening] = s.openings[g.opening] || { n: 0, w: 0, d: 0, l: 0 };
     o.n++; o[r]++;
+    const byc = g.color === "white" ? s.ow : s.ob, oc = byc[g.opening] = byc[g.opening] || { n: 0, w: 0, d: 0, l: 0 };
+    oc.n++; oc[r]++;
     const sp = s.speeds[g.speed] = s.speeds[g.speed] || { n: 0, w: 0, d: 0, l: 0, series: [], peak: 0, cur: null };
     sp.n++; sp[r]++;
     if (g.durationSec != null && g.durationSec > 0) {
@@ -283,6 +285,8 @@ function compute(games) {
   }
   s.winPct = s.n ? Math.round(100 * (s.w + s.d / 2) / s.n) : 0;
   s.topOpenings = Object.entries(s.openings).sort((a, b) => b[1].n - a[1].n).slice(0, 7);
+  s.topW = Object.entries(s.ow).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
+  s.topB = Object.entries(s.ob).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
   s.topSpeeds = Object.entries(s.speeds).sort((a, b) => b[1].n - a[1].n);
   return s;
 }
@@ -325,11 +329,14 @@ function render(user, s, meta) {
   }).join("");
   const speeds = `<table><thead><tr><th>Time control</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${spRows}</tbody></table>`;
 
-  const opRows = s.topOpenings.map(([name, o]) => {
-    const wp = winp(o.w, o.d, o.l), cls = o.n >= 4 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
-    return `<tr><td>${name}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
-  }).join("");
-  const openings = `<table><thead><tr><th>Opening</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${opRows}</tbody></table>`;
+  const opTable = top => {
+    if (!top.length) return '<p style="color:var(--muted);font-size:.9rem">No games.</p>';
+    const rows = top.map(([name, o]) => {
+      const wp = winp(o.w, o.d, o.l), cls = o.n >= 4 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
+      return `<tr><td>${esc(name)}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
+    }).join("");
+    return `<table><thead><tr><th>Opening</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${rows}</tbody></table>`;
+  };
 
   const rate = s.topSpeeds.filter(([, o]) => o.series.length >= 3).map(([sp, o], i) =>
     `<div class="raterow"><span class="sp">${sp}</span><span class="nums"><b>${o.cur}</b> <span class="pk">peak ${o.peak}</span></span>${spark(o.series, pal[i % pal.length])}</div>`
@@ -348,7 +355,8 @@ function render(user, s, meta) {
     card(1, "Rating over time", rate) +
     card(2, "By time control", speeds) +
     card(3, "Record by colour", colour) +
-    card(4, "Most-played openings", openings) +
+    card(4, "Openings as White", opTable(s.topW)) +
+    card(6, "Openings as Black", opTable(s.topB)) +
     card(5, "Time played", timeKpis);
   $("#cards").classList.remove("hidden");
   wireAnalyze();
