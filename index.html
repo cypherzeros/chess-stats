@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess Stats</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f14; --panel: #121a24; --panel2: #0f1620; --line: #1e2a38;
+    --fg: #e6edf3; --muted: #8b9bb0; --accent: #19c37d;
+    --ok: #28c76f; --draw: #6b7a8d; --bad: #ef5350; --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 18px 70px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
+  a { color: var(--accent); }
+  /* input row */
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; margin-bottom: 10px; }
+  .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { appearance: none; background: transparent; border: 0; color: var(--muted); font: inherit;
+    padding: 0 16px; min-height: 46px; cursor: pointer; }
+  .seg button.on { background: var(--panel); color: var(--fg); font-weight: 600; }
+  input[type=text] { flex: 1 1 220px; min-height: 46px; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 10px; color: var(--fg); font: inherit; padding: 0 14px; }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .go { min-height: 46px; padding: 0 22px; border: 0; border-radius: 10px; background: var(--accent); color: #04110a;
+    font: inherit; font-weight: 700; cursor: pointer; }
+  .go:disabled { opacity: .5; cursor: default; }
+  .status { color: var(--muted); font-size: .9rem; min-height: 1.3em; margin: 8px 2px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .status .err { color: var(--bad); }
+  .status .refresh { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: .82rem; cursor: pointer; }
+  /* cards */
+  .cards { display: flex; flex-direction: column; gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--card, var(--accent));
+    border-radius: var(--radius); padding: 18px 20px; }
+  .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    margin: 0 0 14px; font-weight: 600; }
+  .kpis { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .kpi .v { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .kpi .k { color: var(--muted); font-size: .82rem; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  tr:last-child td { border-bottom: 0; }
+  th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  td b { font-weight: 700; }
+  .good { color: var(--ok); } .bad { color: var(--bad); }
+  .row { display: grid; grid-template-columns: 3.3rem 1fr auto; align-items: center; gap: 12px; margin: 7px 0; font-size: .95rem; }
+  .row .lab { color: var(--muted); }
+  .row .bar2 { height: 10px; border-radius: 5px; background: #1b2735; overflow: hidden; }
+  .row .bar2 i { display: block; height: 100%; border-radius: 5px; background: var(--card, var(--accent)); opacity: .5; }
+  .row.max .bar2 i { opacity: 1; }
+  .row .val { text-align: right; min-width: 4.5rem; }
+  .wdl { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .wdl span { display: flex; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700; color: #04110a; min-width: 0; }
+  .wdl .w { background: var(--ok); } .wdl .d { background: var(--draw); } .wdl .l { background: var(--bad); }
+  .colblock { margin: 12px 0; }
+  .colblock .h { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 5px; }
+  .raterow { display: grid; grid-template-columns: 5rem auto 1fr; align-items: center; gap: 14px; margin: 10px 0; }
+  .raterow .sp { text-transform: capitalize; }
+  .raterow .nums { font-variant-numeric: tabular-nums; }
+  .raterow .nums b { font-size: 1.15rem; } .raterow .nums .pk { color: var(--muted); font-size: .82rem; }
+  .raterow svg { width: 100%; height: 34px; display: block; }
+  .foot { color: var(--muted); font-size: .8rem; margin-top: 28px; text-align: center; line-height: 1.6; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Chess Stats</h1>
+  <p class="sub">Type a username, pick the site. Games are fetched straight from the public API in your browser — no account, no server, nothing stored anywhere but your own machine.</p>
+
+  <div class="bar">
+    <div class="seg" id="seg">
+      <button data-p="chesscom" class="on">Chess.com</button>
+      <button data-p="lichess">Lichess</button>
+    </div>
+    <input id="user" type="text" placeholder="username…" autocomplete="off" spellcheck="false">
+    <button class="go" id="go">Get stats</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <div class="cards hidden" id="cards"></div>
+
+  <div class="foot">Proof of concept · up to ~400 recent games · stats only (engine analysis coming) · 100% client-side.</div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+let platform = "chesscom";
+const CAP = 400;             // max games to pull
+const CACHE_TTL = 6 * 3600e3; // reuse cache for 6h
+
+$("#seg").addEventListener("click", e => {
+  const b = e.target.closest("button[data-p]"); if (!b) return;
+  platform = b.dataset.p;
+  [...$("#seg").children].forEach(x => x.classList.toggle("on", x === b));
+});
+$("#go").addEventListener("click", () => run(false));
+$("#user").addEventListener("keydown", e => { if (e.key === "Enter") run(false); });
+
+function setStatus(parts) { $("#status").innerHTML = parts; }
+
+/* ---------- opening family (mirrors the Python build) ---------- */
+const FAM = ["Defense", "Defence", "Opening", "Game", "Gambit", "System"];
+function openingFamily(name) {
+  if (!name) return "Unknown opening";
+  let n = name.replace(/[:,]/g, " ").replace(/\s+/g, " ").trim();
+  const toks = n.split(" "); let out = [];
+  for (const t of toks) { if (/^\d/.test(t)) break; out.push(t); }
+  n = out.join(" ") || n;
+  const tk = n.split(" "); let fam = tk.slice(0, 3).join(" ");
+  for (let i = 0; i < tk.length; i++) { if (FAM.includes(tk[i].replace(/[.,;]/g, ""))) { fam = tk.slice(0, i + 1).join(" "); break; } }
+  return fam.replace(/Caro Kann/g, "Caro-Kann").replace(/Kings /g, "King's ").replace(/Queens /g, "Queen's ");
+}
+
+/* ---------- adapters: normalized game =
+   {end(ms), color, result:'win'|'draw'|'loss', opening, speed, durationSec, rating} ---------- */
+async function fetchChessCom(user, onProg) {
+  const u = user.toLowerCase();
+  const a = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(u)}/games/archives`);
+  if (a.status === 404) throw new Error('No chess.com player called “' + user + '”.');
+  if (!a.ok) throw new Error('chess.com request failed (HTTP ' + a.status + ').');
+  const months = (await a.json()).archives || [];
+  const games = [];
+  for (let i = months.length - 1; i >= 0 && games.length < CAP; i--) {
+    onProg('Fetching games… ' + games.length);
+    const r = await fetch(months[i]); if (!r.ok) continue;
+    const mg = (await r.json()).games || [];
+    for (let k = mg.length - 1; k >= 0; k--) {
+      const g = mg[k]; if (g.rules !== "chess") continue;
+      const meWhite = (g.white.username || "").toLowerCase() === u;
+      const me = meWhite ? g.white : g.black;
+      const result = me.result === "win" ? "win"
+        : ["checkmated", "resigned", "timeout", "abandoned", "lose", "bughousepartnerlose"].includes(me.result) ? "loss" : "draw";
+      const pgn = g.pgn || "";
+      const hdr = t => (pgn.match(new RegExp('\\[' + t + ' "([^"]*)"\\]')) || [])[1];
+      let opening = hdr("Opening");
+      if (!opening) { const eu = g.eco || hdr("ECOUrl") || ""; if (eu.includes("/openings/")) opening = eu.split("/openings/")[1].replace(/-/g, " "); }
+      games.push({
+        end: (g.end_time || 0) * 1000, color: meWhite ? "white" : "black", result,
+        opening: openingFamily(opening), speed: g.time_class,
+        durationSec: g.time_class === "daily" ? null : durChessCom(pgn), rating: me.rating,
+      });
+    }
+  }
+  return games;
+}
+function durChessCom(pgn) {
+  const h = t => (pgn.match(new RegExp('\\[' + t + ' "([^"]*)"\\]')) || [])[1];
+  const ud = h("UTCDate"), st = h("StartTime"), ed = h("EndDate") || h("UTCDate"), et = h("EndTime");
+  if (!ud || !st || !et) return null;
+  const p = (d, t) => { const [Y, M, D] = d.split("."); const [h2, m, s] = t.split(":"); return Date.UTC(+Y, +M - 1, +D, +h2, +m, +s); };
+  const sec = (p(ed, et) - p(ud, st)) / 1000;
+  return sec >= 0 && sec < 86400 ? sec : null;
+}
+
+async function fetchLichess(user, onProg) {
+  const u = user.toLowerCase();
+  const url = `https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=${CAP}&opening=true&sort=dateDesc`;
+  const r = await fetch(url, { headers: { Accept: "application/x-ndjson" } });
+  if (r.status === 404) throw new Error('No lichess player called “' + user + '”.');
+  if (!r.ok) throw new Error('lichess request failed (HTTP ' + r.status + ').');
+  const text = await r.text();
+  const games = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let g; try { g = JSON.parse(line); } catch (e) { continue; }
+    const w = g.players && g.players.white, b = g.players && g.players.black;
+    const nm = s => s && s.user && s.user.name && s.user.name.toLowerCase();
+    const meWhite = nm(w) === u;
+    const me = meWhite ? w : b;
+    const result = !g.winner ? "draw" : (g.winner === (meWhite ? "white" : "black") ? "win" : "loss");
+    const dur = g.lastMoveAt && g.createdAt ? (g.lastMoveAt - g.createdAt) / 1000 : null;
+    games.push({
+      end: g.lastMoveAt || g.createdAt, color: meWhite ? "white" : "black", result,
+      opening: openingFamily(g.opening && g.opening.name), speed: g.speed,
+      durationSec: g.speed === "correspondence" ? null : dur, rating: me && me.rating,
+    });
+    if (games.length % 50 === 0) onProg('Reading games… ' + games.length);
+  }
+  return games;
+}
+
+/* ---------- compute ---------- */
+const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const rkey = r => r === "win" ? "w" : r === "loss" ? "l" : "d";
+function compute(games) {
+  const s = {
+    n: games.length, w: 0, d: 0, l: 0,
+    col: { white: { w: 0, d: 0, l: 0 }, black: { w: 0, d: 0, l: 0 } },
+    openings: {}, speeds: {}, wd: Array(7).fill(0), totalSec: 0, timedGames: 0, longest: 0,
+  };
+  const asc = games.slice().sort((a, b) => a.end - b.end);
+  for (const g of games) {
+    const r = rkey(g.result); s[r]++; s.col[g.color][r]++;
+    const o = s.openings[g.opening] = s.openings[g.opening] || { n: 0, w: 0, d: 0, l: 0 };
+    o.n++; o[r]++;
+    const sp = s.speeds[g.speed] = s.speeds[g.speed] || { n: 0, w: 0, d: 0, l: 0, series: [], peak: 0, cur: null };
+    sp.n++; sp[r]++;
+    if (g.durationSec != null && g.durationSec > 0) {
+      s.totalSec += g.durationSec; s.timedGames++;
+      if (g.durationSec > s.longest) s.longest = g.durationSec;
+      s.wd[(new Date(g.end).getUTCDay() + 6) % 7] += g.durationSec;
+    }
+  }
+  for (const g of asc) {
+    const sp = s.speeds[g.speed]; if (g.rating) { sp.series.push(g.rating); sp.cur = g.rating; if (g.rating > sp.peak) sp.peak = g.rating; }
+  }
+  s.winPct = s.n ? Math.round(100 * (s.w + s.d / 2) / s.n) : 0;
+  s.topOpenings = Object.entries(s.openings).sort((a, b) => b[1].n - a[1].n).slice(0, 7);
+  s.topSpeeds = Object.entries(s.speeds).sort((a, b) => b[1].n - a[1].n);
+  return s;
+}
+
+/* ---------- render ---------- */
+const pal = ["#19c37d", "#3b82f6", "#ef5350", "#f59e0b", "#a855f7", "#06b6d4"];
+const fmtH = sec => { sec = Math.round(sec); let h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60); if (m === 60) { h++; m = 0; } return h ? h + "h " + (m < 10 ? "0" : "") + m + "m" : m + " min"; };
+const fmtMS = sec => { sec = Math.round(sec); const m = Math.floor(sec / 60), x = sec % 60; return m + ":" + (x < 10 ? "0" : "") + x; };
+const winp = (w, d, l) => { const n = w + d + l; return n ? Math.round(100 * (w + d / 2) / n) : 0; };
+
+function card(i, title, inner) { return `<div class="card" style="--card:${pal[i % pal.length]}"><h2>${title}</h2>${inner}</div>`; }
+function wdlBar(o) {
+  const n = o.w + o.d + o.l || 1;
+  const seg = (c, v, lab) => v ? `<span class="${c}" style="flex:${v}">${v >= n * 0.12 ? lab + " " + v : ""}</span>` : "";
+  return `<div class="wdl">${seg("w", o.w, "W")}${seg("d", o.d, "D")}${seg("l", o.l, "L")}</div>`;
+}
+function spark(series, color) {
+  if (!series || series.length < 2) return "";
+  const n = series.length, min = Math.min(...series), max = Math.max(...series), rng = max - min || 1;
+  const W = 300, H = 34, pad = 3;
+  const pts = series.map((v, i) => [pad + i / (n - 1) * (W - 2 * pad), H - pad - (v - min) / rng * (H - 2 * pad)]);
+  const d = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function render(user, s, meta) {
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="v">${s.n}</div><div class="k">games</div></div>
+    <div class="kpi"><div class="v">${s.winPct}%</div><div class="k">win rate (draws ½)</div></div>
+    <div class="kpi"><div class="v">${s.w}–${s.d}–${s.l}</div><div class="k">W–D–L</div></div>
+    <div class="kpi"><div class="v">${fmtH(s.totalSec)}</div><div class="k">time played</div></div>
+  </div>`;
+
+  const colBlock = (name, o) => `<div class="colblock"><div class="h"><span>${name}</span><span>${winp(o.w, o.d, o.l)}% · ${o.w + o.d + o.l} games</span></div>${wdlBar(o)}</div>`;
+  const colour = colBlock("As White", s.col.white) + colBlock("As Black", s.col.black);
+
+  const spRows = s.topSpeeds.map(([sp, o]) => {
+    const wp = winp(o.w, o.d, o.l), cls = o.n >= 5 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
+    return `<tr><td style="text-transform:capitalize">${sp}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
+  }).join("");
+  const speeds = `<table><thead><tr><th>Time control</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${spRows}</tbody></table>`;
+
+  const opRows = s.topOpenings.map(([name, o]) => {
+    const wp = winp(o.w, o.d, o.l), cls = o.n >= 4 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
+    return `<tr><td>${name}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
+  }).join("");
+  const openings = `<table><thead><tr><th>Opening</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${opRows}</tbody></table>`;
+
+  const rate = s.topSpeeds.filter(([, o]) => o.series.length >= 3).map(([sp, o], i) =>
+    `<div class="raterow"><span class="sp">${sp}</span><span class="nums"><b>${o.cur}</b> <span class="pk">peak ${o.peak}</span></span>${spark(o.series, pal[i % pal.length])}</div>`
+  ).join("") || '<div class="row"><span class="lab">No rating history.</span></div>';
+
+  const maxWd = Math.max(...s.wd, 1);
+  const wd = WD.map((d, i) => {
+    const mx = s.wd[i] === maxWd && maxWd > 0;
+    return `<div class="row${mx ? " max" : ""}"><span class="lab">${d}</span><span class="bar2"><i style="width:${Math.round(100 * s.wd[i] / maxWd)}%"></i></span><span class="val">${s.wd[i] ? fmtH(s.wd[i]) : "—"}</span></div>`;
+  }).join("");
+  const avg = s.timedGames ? fmtMS(s.totalSec / s.timedGames) : "—";
+  const timeKpis = `<div class="kpis"><div class="kpi"><div class="v">${avg}</div><div class="k">avg game</div></div><div class="kpi"><div class="v">${s.longest ? fmtMS(s.longest) : "—"}</div><div class="k">longest game</div></div><div class="kpi"><div class="v">${s.timedGames}</div><div class="k">timed games</div></div></div><div style="margin-top:16px"></div>` + wd;
+
+  $("#cards").innerHTML =
+    card(0, `${user} · ${platform === "chesscom" ? "Chess.com" : "Lichess"} · last ${s.n} games`, kpis) +
+    card(1, "Rating over time", rate) +
+    card(2, "By time control", speeds) +
+    card(3, "Record by colour", colour) +
+    card(4, "Most-played openings", openings) +
+    card(5, "Time played", timeKpis);
+  $("#cards").classList.remove("hidden");
+}
+
+/* ---------- cache + orchestration ---------- */
+const ckey = (p, u) => "cs:" + p + ":" + u.toLowerCase();
+function readCache(p, u) { try { const v = JSON.parse(localStorage.getItem(ckey(p, u))); return v && v.games ? v : null; } catch (e) { return null; } }
+function writeCache(p, u, games) { try { localStorage.setItem(ckey(p, u), JSON.stringify({ at: Date.now(), games })); } catch (e) {} }
+const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + "m ago" : Math.round(m / 60) + "h ago"; };
+
+async function run(force) {
+  const user = $("#user").value.trim();
+  if (!user) { setStatus('<span class="err">Type a username first.</span>'); return; }
+  $("#go").disabled = true; $("#cards").classList.add("hidden");
+  try {
+    const cached = force ? null : readCache(platform, user);
+    if (cached && Date.now() - cached.at < CACHE_TTL) {
+      render(user, compute(cached.games));
+      setStatus(`${cached.games.length} games · cached ${ago(cached.at)} <button class="refresh" id="rf">Refresh</button>`);
+      $("#rf").onclick = () => run(true);
+    } else {
+      const t0 = performance.now();
+      const games = await (platform === "chesscom" ? fetchChessCom : fetchLichess)(user, m => setStatus(m));
+      if (!games.length) { setStatus('<span class="err">No games found for that account.</span>'); $("#go").disabled = false; return; }
+      writeCache(platform, user, games);
+      render(user, compute(games));
+      setStatus(`Loaded ${games.length} games in ${((performance.now() - t0) / 1000).toFixed(1)}s. <button class="refresh" id="rf">Refresh</button>`);
+      $("#rf").onclick = () => run(true);
+    }
+  } catch (e) {
+    setStatus('<span class="err">' + ((e && e.message) || String(e)) + "</span>");
+  }
+  $("#go").disabled = false;
+}
+</script>
+</body>
+</html>
