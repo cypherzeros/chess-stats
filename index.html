@@ -21,6 +21,14 @@
   .tabbtn { flex: 1; background: none; border: 0; color: var(--muted); font: inherit; font-size: .72rem; padding: 9px 4px 11px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
   .tabbtn.on { color: var(--accent); }
   .tabbtn svg { width: 22px; height: 22px; }
+  /* opponents by country */
+  @font-face { font-family: "Twemoji Country Flags"; font-display: swap; src: url("TwemojiCountryFlags.woff2") format("woff2"); }
+  .flag { font-family: "Twemoji Country Flags", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; margin-right: 7px; }
+  .ckpis { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); margin-bottom: 14px; }
+  .ckpi { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .ckpi .v { font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; line-height: 1.2; }
+  .ckpi .v.big { font-size: 1.7rem; }
+  .ckpi .k { color: var(--muted); font-size: .78rem; margin-top: 2px; }
   h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
   a { color: var(--accent); }
@@ -357,9 +365,12 @@ function render(user, s, meta) {
     card(3, "Record by colour", colour) +
     card(4, "Openings as White", opTable(s.topW)) +
     card(6, "Openings as Black", opTable(s.topB)) +
+    card(7, "Opponents by country",
+      '<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Where the players you faced are from. Looks up each opponent\'s profile — cached after the first time, so it\'s instant next visit.</p>'
+      + '<button class="go" id="ctrybtn">Load countries</button><div id="ctryout" style="margin-top:14px"></div>') +
     card(5, "Time played", timeKpis);
   $("#cards").classList.remove("hidden");
-  wireAnalyze();
+  wireAnalyze(); wireCountry();
 }
 
 /* ---------- cache + orchestration ---------- */
@@ -518,6 +529,67 @@ function renderAnalysis() {
   });
   out.querySelectorAll("[data-jump]").forEach(el => el.onclick = () => { AZ.ply = +el.dataset.jump; renderAnalysis(); const m = out.querySelector(".azmain"); if (m) m.scrollIntoView({ behavior: "smooth", block: "center" }); });
 }
+/* ---------- opponents by country ---------- */
+const flagOf = code => (code && /^[a-z]{2}$/i.test(code)) ? code.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0))) : "🏳";
+const regionName = (() => { let dn = null; try { dn = new Intl.DisplayNames([navigator.language || "en"], { type: "region" }); } catch (e) {} return code => { if (!code) return "Unknown"; try { return (dn && dn.of(code.toUpperCase())) || code; } catch (e) { return code; } }; })();
+const ccKey = (plat, opp) => "ctry:" + plat + ":" + opp.toLowerCase();
+function getCC(plat, opp) { try { const v = localStorage.getItem(ccKey(plat, opp)); return v === null ? undefined : v; } catch (e) { return undefined; } }
+function setCC(plat, opp, code) { try { localStorage.setItem(ccKey(plat, opp), code || ""); } catch (e) {} }
+async function ccChesscom(opp) { try { const r = await fetch("https://api.chess.com/pub/player/" + encodeURIComponent(opp)); if (!r.ok) return ""; const j = await r.json(); return j.country ? j.country.split("/").pop() : ""; } catch (e) { return ""; } }
+async function resolveCountries(plat, opps, onProg) {
+  const map = {}, missing = [];
+  for (const o of opps) { const c = getCC(plat, o); if (c !== undefined) map[o] = c; else missing.push(o); }
+  let done = opps.length - missing.length; onProg(done, opps.length);
+  if (!missing.length) return map;
+  if (plat === "lichess") {
+    for (let i = 0; i < missing.length; i += 280) {
+      const batch = missing.slice(i, i + 280);
+      try {
+        const r = await fetch("https://lichess.org/api/users", { method: "POST", headers: { "Content-Type": "text/plain" }, body: batch.join(",") });
+        const arr = r.ok ? await r.json() : [];
+        const by = {}; arr.forEach(u => { by[(u.id || u.username || "").toLowerCase()] = (u.profile && u.profile.country) || ""; });
+        batch.forEach(o => { const c = by[o.toLowerCase()] || ""; map[o] = c; setCC(plat, o, c); });
+      } catch (e) { batch.forEach(o => { map[o] = ""; }); }
+      done += batch.length; onProg(done, opps.length);
+    }
+  } else {
+    const CONC = 8; let idx = 0;
+    const worker = async () => { while (idx < missing.length) { const o = missing[idx++]; const c = await ccChesscom(o); map[o] = c; setCC(plat, o, c); done++; onProg(done, opps.length); } };
+    await Promise.all(Array.from({ length: Math.min(CONC, missing.length) }, worker));
+  }
+  return map;
+}
+async function loadCountries() {
+  const host = $("#ctryout"), btn = $("#ctrybtn"); if (!host || !LAST) return;
+  const opps = [...new Set(LAST.games.map(g => (g.opp || "").toLowerCase()).filter(Boolean))];
+  btn.disabled = true;
+  const prog = (n, t) => { host.innerHTML = '<p style="color:var(--muted)">Looking up opponents… ' + n + " / " + t + "</p>"; };
+  prog(0, opps.length);
+  const map = await resolveCountries(LAST.platform, opps, prog);
+  const tally = {};
+  for (const g of LAST.games) {
+    const o = (g.opp || "").toLowerCase(); if (!o) continue; const code = (map[o] || "").toUpperCase(); if (!code) continue;
+    const t = tally[code] = tally[code] || { code, n: 0, w: 0, d: 0, l: 0 }; t.n++; t[rkey(g.result)]++;
+  }
+  const rows = Object.values(tally).sort((a, b) => b.n - a.n);
+  if (!rows.length) { host.innerHTML = '<p style="color:var(--muted)">No opponent countries found (their profiles may not list one).</p>'; btn.disabled = false; return; }
+  const most = rows[0], rare = rows[rows.length - 1];
+  const pool = rows.filter(r => r.n >= 3); const best = (pool.length ? pool : rows).slice().sort((a, b) => winp(b.w, b.d, b.l) - winp(a.w, a.d, a.l) || b.n - a.n)[0];
+  const tile = (k, flag, name, big) => '<div class="ckpi"><div class="v' + (big ? " big" : "") + '">' + (flag ? '<span class="flag">' + flag + "</span>" : "") + esc(name) + '</div><div class="k">' + k + "</div></div>";
+  let html = '<div class="ckpis">'
+    + tile("countries faced", "", String(rows.length), true)
+    + tile(most.n + " games", flagOf(most.code), regionName(most.code))
+    + tile("best record · " + winp(best.w, best.d, best.l) + "% of " + best.n, flagOf(best.code), regionName(best.code))
+    + tile("rarest · " + rare.n + (rare.n === 1 ? " game" : " games"), flagOf(rare.code), regionName(rare.code))
+    + "</div>";
+  html += '<table><thead><tr><th>Country</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>'
+    + rows.map(r => { const wp = winp(r.w, r.d, r.l), cls = r.n >= 3 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
+      return '<tr><td><span class="flag">' + flagOf(r.code) + "</span>" + esc(regionName(r.code)) + "</td><td><b>" + r.n + "</b></td><td>" + r.w + "</td><td>" + r.d + "</td><td>" + r.l + '</td><td class="' + cls + '">' + wp + "%</td></tr>"; }).join("")
+    + "</tbody></table>";
+  host.innerHTML = html;
+  btn.textContent = "Refresh"; btn.disabled = false;
+}
+function wireCountry() { const b = $("#ctrybtn"); if (b) b.onclick = loadCountries; }
 function wireAnalyze() {
   const sel = $("#azsel"); if (!sel || !LAST) return;
   const opts = LAST.games.filter(g => g.moves && g.moves.trim()).slice(0, 40);
