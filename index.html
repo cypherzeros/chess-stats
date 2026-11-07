@@ -319,7 +319,7 @@ function render(user, s, meta) {
 }
 
 /* ---------- cache + orchestration ---------- */
-const ckey = (p, u) => "cs:" + p + ":" + u.toLowerCase();
+const ckey = (p, u) => "cs2:" + p + ":" + u.toLowerCase();  // bump prefix when the cached game shape changes
 function readCache(p, u) { try { const v = JSON.parse(localStorage.getItem(ckey(p, u))); return v && v.games ? v : null; } catch (e) { return null; } }
 function writeCache(p, u, games) { try { localStorage.setItem(ckey(p, u), JSON.stringify({ at: Date.now(), games })); } catch (e) {} }
 const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + "m ago" : Math.round(m / 60) + "h ago"; };
