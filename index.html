@@ -311,7 +311,7 @@ function render(user, s, meta) {
     card(4, "Most-played openings", openings) +
     card(5, "Time played", timeKpis) +
     card(6, "Analyze a game (engine)",
-      '<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Runs Stockfish in your browser on one game to find your blunders and the better move. Loads ~0.6 MB the first time; nothing leaves your device.</p>'
+      '<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Runs Stockfish in your browser on one game to find your blunders and the better move. Loads the engine the first time (cached after); nothing leaves your device.</p>'
       + '<div class="azbar"><select id="azsel" aria-label="Pick a game"></select><button class="go" id="azgo">Analyze</button></div>'
       + '<div class="status" id="azstatus"></div><div id="azout"></div>');
   $("#cards").classList.remove("hidden");
@@ -356,7 +356,7 @@ let _engine = null;
 function loadEngine() {
   if (_engine) return _engine;
   _engine = new Promise((res, rej) => {
-    let sf; try { sf = new Worker("stockfish.wasm.js"); } catch (e) { rej(e); return; }
+    let sf; try { sf = new Worker("stockfish-asm.js"); } catch (e) { rej(e); return; }
     let handler = null;
     sf.onmessage = e => { const d = typeof e.data === "string" ? e.data : (e.data && e.data.data) || ""; if (handler) handler(d); };
     sf.onerror = () => rej(new Error("engine worker failed"));
@@ -398,7 +398,7 @@ async function analyzeGame(game) {
   st.textContent = "Loading engine…";
   let Chess; try { ({ Chess } = await import("./chess.js")); } catch (e) { st.innerHTML = '<span class="err">Couldn’t load the chess library.</span>'; $("#azgo").disabled = false; return; }
   let eng; try { eng = await loadEngine(); } catch (e) { st.innerHTML = '<span class="err">Couldn’t start the engine.</span>'; $("#azgo").disabled = false; return; }
-  const DEPTH = 11, CAP = 80, meWhite = game.color === "white";
+  const DEPTH = 10, CAP = 80, meWhite = game.color === "white";
   const ch = new Chess(), plies = [];
   for (let i = 0; i < moves.length && i < CAP; i++) {
     const fenBefore = ch.fen(); let mv; try { mv = ch.move(moves[i]); } catch (e) { mv = null; } if (!mv) break;
