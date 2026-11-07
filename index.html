@@ -29,6 +29,9 @@
   .ckpi .v { font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; line-height: 1.2; }
   .ckpi .v.big { font-size: 1.7rem; }
   .ckpi .k { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+  .radarsvg { width: 100%; max-width: 320px; height: auto; display: block; margin: 0 auto; }
+  .radleg { display: flex; justify-content: center; gap: 18px; margin-top: 4px; font-size: .85rem; color: var(--muted); }
+  .radleg i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
   h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
   a { color: var(--accent); }
@@ -212,7 +215,7 @@ async function fetchChessCom(user, onProg) {
         end: (g.end_time || 0) * 1000, color: meWhite ? "white" : "black", result,
         opening: openingFamily(opening), speed: g.time_class,
         durationSec: g.time_class === "daily" ? null : durChessCom(pgn), rating: me.rating,
-        opp: (meWhite ? g.black.username : g.white.username) || "?", moves: pgnMoves(pgn),
+        opp: (meWhite ? g.black.username : g.white.username) || "?", oppRating: (meWhite ? g.black.rating : g.white.rating) || null, moves: pgnMoves(pgn),
       });
     }
   }
@@ -257,7 +260,7 @@ async function fetchLichess(user, onProg) {
       end: g.lastMoveAt || g.createdAt, color: meWhite ? "white" : "black", result,
       opening: openingFamily(g.opening && g.opening.name), speed: g.speed,
       durationSec: g.speed === "correspondence" ? null : dur, rating: me && me.rating,
-      opp: ((meWhite ? b : w) && (meWhite ? b : w).user && (meWhite ? b : w).user.name) || "Anonymous", moves: g.moves || "",
+      opp: ((meWhite ? b : w) && (meWhite ? b : w).user && (meWhite ? b : w).user.name) || "Anonymous", oppRating: ((meWhite ? b : w) && (meWhite ? b : w).rating) || null, moves: g.moves || "",
     });
     if (games.length % 50 === 0) onProg('Reading games… ' + games.length);
   }
@@ -267,6 +270,30 @@ async function fetchLichess(user, onProg) {
 /* ---------- compute ---------- */
 const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const rkey = r => r === "win" ? "w" : r === "loss" ? "l" : "d";
+const RLABELS = ["Overall", "White", "Black", "Rating", "Fast", "Slow"];
+function radarAxes(sub) {
+  const pts = a => a.length ? Math.round(100 * a.reduce((s, g) => s + (g.result === "win" ? 1 : g.result === "draw" ? 0.5 : 0), 0) / a.length) : 50;
+  const W = sub.filter(g => g.color === "white"), B = sub.filter(g => g.color === "black");
+  const F = sub.filter(g => g.speed === "bullet" || g.speed === "blitz"), S = sub.filter(g => g.speed === "rapid" || g.speed === "daily" || g.speed === "classical");
+  const rated = sub.filter(g => g.rating && g.oppRating);
+  const exp = rated.length ? Math.round(100 * rated.reduce((s, g) => s + 1 / (1 + Math.pow(10, (g.oppRating - g.rating) / 400)), 0) / rated.length) : 50;
+  return [pts(sub), pts(W), pts(B), exp, pts(F), pts(S)];
+}
+function radarData(games) {
+  if (games.length < 8) return null;
+  const r = Math.max(10, Math.round(games.length / 3));  // games arrive newest-first
+  const recent = games.slice(0, r), earlier = games.slice(r);
+  return { labels: RLABELS, recent: radarAxes(recent), earlier: radarAxes(earlier.length ? earlier : games), rn: recent.length, en: earlier.length };
+}
+function radarSVG(labels, series) {
+  const N = labels.length, cx = 130, cy = 122, R = 82;
+  const pt = (i, rr) => { const a = -Math.PI / 2 + i * 2 * Math.PI / N; return [cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]; };
+  let s = '<svg viewBox="0 0 260 244" class="radarsvg" xmlns="http://www.w3.org/2000/svg">';
+  for (let ring = 1; ring <= 4; ring++) { const rr = R * ring / 4; let p = ""; for (let i = 0; i < N; i++) { const [x, y] = pt(i, rr); p += (i ? " " : "") + x.toFixed(1) + "," + y.toFixed(1); } s += '<polygon points="' + p + '" fill="none" stroke="' + (ring === 2 ? "#4a5a6e" : "#273341") + '" stroke-width="1"' + (ring === 2 ? ' stroke-dasharray="3 3"' : "") + "/>"; }
+  for (let i = 0; i < N; i++) { const [x, y] = pt(i, R); s += '<line x1="' + cx + '" y1="' + cy + '" x2="' + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="#273341"/>'; const [lx, ly] = pt(i, R + 17); s += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" fill="#8b9bb0" font-size="11" text-anchor="middle" dominant-baseline="middle">' + labels[i] + "</text>"; }
+  series.forEach(se => { let p = ""; for (let i = 0; i < N; i++) { const v = Math.max(0, Math.min(100, se.vals[i])); const [x, y] = pt(i, R * v / 100); p += (i ? " " : "") + x.toFixed(1) + "," + y.toFixed(1); } s += '<polygon points="' + p + '" fill="' + se.color + '" fill-opacity="0.16" stroke="' + se.color + '" stroke-width="2" stroke-linejoin="round"/>'; });
+  return s + "</svg>";
+}
 function compute(games) {
   const s = {
     n: games.length, w: 0, d: 0, l: 0,
@@ -295,6 +322,7 @@ function compute(games) {
   s.topOpenings = Object.entries(s.openings).sort((a, b) => b[1].n - a[1].n).slice(0, 7);
   s.topW = Object.entries(s.ow).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
   s.topB = Object.entries(s.ob).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
+  s.radar = radarData(games);
   s.topSpeeds = Object.entries(s.speeds).sort((a, b) => b[1].n - a[1].n);
   return s;
 }
@@ -360,6 +388,11 @@ function render(user, s, meta) {
 
   $("#cards").innerHTML =
     card(0, `${user} · ${platform === "chesscom" ? "Chess.com" : "Lichess"} · last ${s.n} games`, kpis) +
+    card(8, "Your edge — recent vs earlier", s.radar
+      ? radarSVG(s.radar.labels, [{ color: "#19c37d", vals: s.radar.recent }, { color: "#3b82f6", vals: s.radar.earlier }])
+        + '<div class="radleg"><span><i style="background:#19c37d"></i>Recent ' + s.radar.rn + '</span><span><i style="background:#3b82f6"></i>Earlier ' + s.radar.en + '</span></div>'
+        + '<p style="color:var(--muted);font-size:.82rem;text-align:center;margin:8px 0 0">Dashed ring = even with your opponents (50%). Further out = stronger.</p>'
+      : '<p style="color:var(--muted)">Need a few more games to compare.</p>') +
     card(1, "Rating over time", rate) +
     card(2, "By time control", speeds) +
     card(3, "Record by colour", colour) +
