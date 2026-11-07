@@ -67,6 +67,22 @@
   .raterow svg { width: 100%; height: 34px; display: block; }
   .foot { color: var(--muted); font-size: .8rem; margin-top: 28px; text-align: center; line-height: 1.6; }
   .hidden { display: none; }
+  /* engine analysis */
+  .azbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .azbar select { flex: 1 1 220px; min-height: 46px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font: inherit; padding: 0 12px; }
+  .azsummary { display: flex; gap: 20px; flex-wrap: wrap; margin: 6px 0 10px; }
+  .azsummary .n { font-weight: 800; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+  .azblun { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin: 12px 0; display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
+  .azblun .meta b.good { color: var(--ok); } .azblun .meta b.bad { color: var(--bad); }
+  .tag { font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 5px; }
+  .tag.bl { background: rgba(239,83,80,.18); color: #ef9a9a; }
+  .tag.mi { background: rgba(245,166,80,.18); color: #f5c98a; }
+  .bd { display: grid; grid-template-columns: repeat(8, 1fr); width: 176px; height: 176px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .bd .sq { display: flex; align-items: center; justify-content: center; font-size: 21px; line-height: 1; }
+  .bd .lt { background: #aeb7c2; } .bd .dk { background: #58616e; }
+  .bd .pc.wh { color: #fff; text-shadow: 0 0 2px #000, 0 0 1px #000; }
+  .bd .pc.bk { color: #11161d; }
+  @media (max-width: 520px) { .azblun { grid-template-columns: 1fr; } .bd { width: 164px; height: 164px; } }
 </style>
 </head>
 <body>
@@ -86,13 +102,15 @@
 
   <div class="cards hidden" id="cards"></div>
 
-  <div class="foot">Proof of concept · up to ~400 recent games · stats only (engine analysis coming) · 100% client-side.</div>
+  <div class="foot">Up to ~400 recent games · engine analysis runs on your own device · 100% client-side, nothing is stored or sent anywhere.</div>
 </div>
 
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let platform = "chesscom";
+let LAST = null;   // {user, platform, games} — for the engine analysis feature
 const CAP = 400;             // max games to pull
 const CACHE_TTL = 6 * 3600e3; // reuse cache for 6h
 
@@ -146,6 +164,7 @@ async function fetchChessCom(user, onProg) {
         end: (g.end_time || 0) * 1000, color: meWhite ? "white" : "black", result,
         opening: openingFamily(opening), speed: g.time_class,
         durationSec: g.time_class === "daily" ? null : durChessCom(pgn), rating: me.rating,
+        opp: (meWhite ? g.black.username : g.white.username) || "?", moves: pgnMoves(pgn),
       });
     }
   }
@@ -158,6 +177,15 @@ function durChessCom(pgn) {
   const p = (d, t) => { const [Y, M, D] = d.split("."); const [h2, m, s] = t.split(":"); return Date.UTC(+Y, +M - 1, +D, +h2, +m, +s); };
   const sec = (p(ed, et) - p(ud, st)) / 1000;
   return sec >= 0 && sec < 86400 ? sec : null;
+}
+function pgnMoves(pgn) {
+  if (!pgn) return "";
+  let mt = pgn.replace(/\[[^\]]*\]\s*/g, " ");   // drop headers
+  mt = mt.replace(/\{[^}]*\}/g, " ");             // drop comments (incl %clk)
+  mt = mt.replace(/\d+\.(\.\.)?/g, " ");          // drop move numbers
+  mt = mt.replace(/\$\d+/g, " ");                 // drop NAGs
+  mt = mt.replace(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, " "); // drop results
+  return mt.replace(/\s+/g, " ").trim();
 }
 
 async function fetchLichess(user, onProg) {
@@ -181,6 +209,7 @@ async function fetchLichess(user, onProg) {
       end: g.lastMoveAt || g.createdAt, color: meWhite ? "white" : "black", result,
       opening: openingFamily(g.opening && g.opening.name), speed: g.speed,
       durationSec: g.speed === "correspondence" ? null : dur, rating: me && me.rating,
+      opp: ((meWhite ? b : w) && (meWhite ? b : w).user && (meWhite ? b : w).user.name) || "Anonymous", moves: g.moves || "",
     });
     if (games.length % 50 === 0) onProg('Reading games… ' + games.length);
   }
@@ -280,8 +309,13 @@ function render(user, s, meta) {
     card(2, "By time control", speeds) +
     card(3, "Record by colour", colour) +
     card(4, "Most-played openings", openings) +
-    card(5, "Time played", timeKpis);
+    card(5, "Time played", timeKpis) +
+    card(6, "Analyze a game (engine)",
+      '<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Runs Stockfish in your browser on one game to find your blunders and the better move. Loads ~0.6 MB the first time; nothing leaves your device.</p>'
+      + '<div class="azbar"><select id="azsel" aria-label="Pick a game"></select><button class="go" id="azgo">Analyze</button></div>'
+      + '<div class="status" id="azstatus"></div><div id="azout"></div>');
   $("#cards").classList.remove("hidden");
+  wireAnalyze();
 }
 
 /* ---------- cache + orchestration ---------- */
@@ -297,6 +331,7 @@ async function run(force) {
   try {
     const cached = force ? null : readCache(platform, user);
     if (cached && Date.now() - cached.at < CACHE_TTL) {
+      LAST = { user, platform, games: cached.games };
       render(user, compute(cached.games));
       setStatus(`${cached.games.length} games · cached ${ago(cached.at)} <button class="refresh" id="rf">Refresh</button>`);
       $("#rf").onclick = () => run(true);
@@ -305,6 +340,7 @@ async function run(force) {
       const games = await (platform === "chesscom" ? fetchChessCom : fetchLichess)(user, m => setStatus(m));
       if (!games.length) { setStatus('<span class="err">No games found for that account.</span>'); $("#go").disabled = false; return; }
       writeCache(platform, user, games);
+      LAST = { user, platform, games };
       render(user, compute(games));
       setStatus(`Loaded ${games.length} games in ${((performance.now() - t0) / 1000).toFixed(1)}s. <button class="refresh" id="rf">Refresh</button>`);
       $("#rf").onclick = () => run(true);
@@ -313,6 +349,106 @@ async function run(force) {
     setStatus('<span class="err">' + ((e && e.message) || String(e)) + "</span>");
   }
   $("#go").disabled = false;
+}
+
+/* ---------- engine analysis (lazy-loaded) ---------- */
+let _engine = null;
+function loadEngine() {
+  if (_engine) return _engine;
+  _engine = new Promise((res, rej) => {
+    let sf; try { sf = new Worker("stockfish.wasm.js"); } catch (e) { rej(e); return; }
+    let handler = null;
+    sf.onmessage = e => { const d = typeof e.data === "string" ? e.data : (e.data && e.data.data) || ""; if (handler) handler(d); };
+    sf.onerror = () => rej(new Error("engine worker failed"));
+    handler = d => { if (d === "uciok") { handler = null; res({ post: c => sf.postMessage(c), set: h => { handler = h; } }); } };
+    sf.postMessage("uci");
+  });
+  return _engine;
+}
+function sfAnalyse(eng, fen, depth) {
+  return new Promise(res => {
+    let cp = null, mate = null, best = null, pv = null;
+    eng.set(d => {
+      const m = d.match(/ score (cp|mate) (-?\d+)/); if (m) { if (m[1] === "cp") { cp = +m[2]; mate = null; } else { mate = +m[2]; cp = null; } }
+      const pm = d.match(/ pv (\S.*)$/); if (pm) pv = pm[1].trim();
+      if (/^bestmove/.test(d)) { const bm = d.match(/^bestmove (\S+)/); best = bm ? bm[1] : null; res({ cp, mate, best, pv }); }
+    });
+    eng.post("position fen " + fen);
+    eng.post("go depth " + depth);
+  });
+}
+const winpct = cp => { cp = Math.max(-2000, Math.min(2000, cp)); return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1); };
+const evalStr = cp => { if (Math.abs(cp) >= 99000) return cp > 0 ? "#" : "-#"; const v = cp / 100; return (v > 0 ? "+" : "") + v.toFixed(1); };
+const PG = { p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚" };
+function boardHTML(fen, flip) {
+  const rows = fen.split(" ")[0].split("/"); const cells = [];
+  for (let r = 0; r < 8; r++) { let f = 0; for (const ch of rows[r]) { if (/\d/.test(ch)) { for (let i = 0; i < +ch; i++) { cells.push({ r, f, ch: "" }); f++; } } else { cells.push({ r, f, ch }); f++; } } }
+  if (flip) cells.reverse();
+  let h = '<div class="bd">';
+  for (const c of cells) { const dark = (c.r + c.f) % 2 === 1; const isW = c.ch && c.ch === c.ch.toUpperCase();
+    const g = c.ch ? '<span class="pc ' + (isW ? "wh" : "bk") + '">' + PG[c.ch.toLowerCase()] + "</span>" : "";
+    h += '<div class="sq ' + (dark ? "dk" : "lt") + '">' + g + "</div>"; }
+  return h + "</div>";
+}
+async function analyzeGame(game) {
+  const out = $("#azout"), st = $("#azstatus"); out.innerHTML = "";
+  const moves = (game.moves || "").trim().split(/\s+/).filter(Boolean);
+  if (!moves.length) { st.innerHTML = '<span class="err">No moves stored for this game.</span>'; return; }
+  $("#azgo").disabled = true;
+  st.textContent = "Loading engine…";
+  let Chess; try { ({ Chess } = await import("./chess.js")); } catch (e) { st.innerHTML = '<span class="err">Couldn’t load the chess library.</span>'; $("#azgo").disabled = false; return; }
+  let eng; try { eng = await loadEngine(); } catch (e) { st.innerHTML = '<span class="err">Couldn’t start the engine.</span>'; $("#azgo").disabled = false; return; }
+  const DEPTH = 11, CAP = 80, meWhite = game.color === "white";
+  const ch = new Chess(), plies = [];
+  for (let i = 0; i < moves.length && i < CAP; i++) {
+    const fenBefore = ch.fen(); let mv; try { mv = ch.move(moves[i]); } catch (e) { mv = null; } if (!mv) break;
+    plies.push({ fenBefore, fenAfter: ch.fen(), san: mv.san, uci: mv.from + mv.to + (mv.promotion || ""), ply: i + 1 });
+  }
+  const positions = [new Chess().fen()].concat(plies.map(p => p.fenAfter)), P = [];
+  for (let i = 0; i < positions.length; i++) {
+    st.textContent = "Analyzing… " + i + " / " + positions.length;
+    const fen = positions[i], stmWhite = fen.split(" ")[1] === "w";
+    const a = await sfAnalyse(eng, fen, DEPTH);
+    const raw = a.cp != null ? a.cp : (a.mate != null ? (a.mate > 0 ? 99999 : -99999) : 0);
+    P.push({ fen, whiteCp: raw * (stmWhite ? 1 : -1), best: a.best });
+  }
+  const finds = [];
+  for (let k = 1; k <= plies.length; k++) {
+    if ((k % 2 === 1) !== meWhite) continue;                 // only my moves
+    const myBefore = P[k - 1].whiteCp * (meWhite ? 1 : -1), myAfter = P[k].whiteCp * (meWhite ? 1 : -1);
+    const drop = winpct(myBefore) - winpct(myAfter);
+    if (drop >= 10 && myBefore > -800) {
+      const bUci = P[k - 1].best; let bSan = bUci;
+      try { const c = new Chess(P[k - 1].fen); const m = c.move({ from: bUci.slice(0, 2), to: bUci.slice(2, 4), promotion: bUci[4] }); if (m) bSan = m.san; } catch (e) {}
+      finds.push({ moveNo: Math.ceil(k / 2), san: plies[k - 1].san, bSan, same: plies[k - 1].uci === bUci, myBefore, myAfter, drop, fen: P[k - 1].fen, kind: drop >= 20 ? "bl" : "mi" });
+    }
+  }
+  finds.sort((a, b) => b.drop - a.drop);
+  const nb = finds.filter(f => f.kind === "bl").length, nm = finds.filter(f => f.kind === "mi").length;
+  let html = '<div class="azsummary"><div><span class="n">' + nb + "</span> blunders</div><div><span class=\"n\">" + nm + "</span> mistakes</div><div><span class=\"n\">" + plies.length + "</span> moves" + (moves.length > CAP ? " (first " + CAP + ")" : "") + "</div></div>";
+  if (!finds.length) html += '<p style="color:var(--muted)">No clear mistakes found — clean game. 👏</p>';
+  finds.slice(0, 6).forEach(f => {
+    html += '<div class="azblun">' + boardHTML(f.fen, !meWhite)
+      + '<div class="meta"><div><span class="tag ' + f.kind + '">' + (f.kind === "bl" ? "Blunder" : "Mistake") + "</span> <b>Move " + f.moveNo + "</b></div>"
+      + '<div style="margin-top:6px">You played <b class="bad">' + esc(f.san) + "</b> (" + evalStr(f.myAfter) + ")</div>"
+      + (f.same ? "<div>That was already the engine’s pick.</div>" : '<div>Better: <b class="good">' + esc(f.bSan) + "</b> (" + evalStr(f.myBefore) + ")</div>")
+      + '<div style="color:var(--muted);font-size:.85rem;margin-top:4px">win chance −' + Math.round(f.drop) + "%</div></div></div>";
+  });
+  out.innerHTML = html;
+  st.innerHTML = 'Done — <span style="color:var(--muted)">engine ran on your device.</span>';
+  $("#azgo").disabled = false;
+}
+function wireAnalyze() {
+  const sel = $("#azsel"); if (!sel || !LAST) return;
+  const opts = LAST.games.filter(g => g.moves && g.moves.trim()).slice(0, 40);
+  sel.innerHTML = opts.map(g => {
+    const d = new Date(g.end).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return '<option value="' + LAST.games.indexOf(g) + '">' + d + " · " + (g.color === "white" ? "W" : "B") + " vs " + esc(g.opp || "?") + " · " + g.result + "</option>";
+  }).join("");
+  const go = $("#azgo");
+  if (!opts.length) { go.disabled = true; sel.innerHTML = "<option>No games with moves</option>"; return; }
+  go.disabled = false;
+  go.onclick = () => { const gi = +sel.value; if (LAST.games[gi]) analyzeGame(LAST.games[gi]); };
 }
 </script>
 </body>
