@@ -72,9 +72,19 @@
   .azbar select { flex: 1 1 220px; min-height: 46px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font: inherit; padding: 0 12px; }
   .azsummary { display: flex; gap: 20px; flex-wrap: wrap; margin: 6px 0 10px; }
   .azsummary .n { font-weight: 800; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
-  .azblun { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 16px 0; }
-  .azblun .meta b.good { color: var(--ok); } .azblun .meta b.bad { color: var(--bad); }
-  .azblun .meta { font-size: 1.02rem; }
+  .azmain { margin: 10px 0 6px; }
+  .azevalbar { max-width: 460px; height: 8px; margin: 0 auto 8px; border-radius: 5px; background: var(--bad); overflow: hidden; }
+  .azevalbar i { display: block; height: 100%; background: var(--ok); transition: width .15s ease; }
+  .aznav { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 460px; margin: 10px auto 0; }
+  .aznavb { min-width: 50px; min-height: 44px; background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; color: var(--fg); font-size: 1rem; cursor: pointer; }
+  .aznavb:active { background: var(--line); }
+  .azinfo { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; }
+  .azfinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: 12px; }
+  .azfind { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; text-align: center; color: var(--fg); font: inherit; }
+  .azfind.on { border-color: var(--accent); }
+  .azfind .bdsvg { max-width: 100%; margin: 6px 0; box-shadow: none; }
+  .azfind .cap { font-size: .78rem; color: var(--muted); line-height: 1.35; }
+  .azfind .cap b.good { color: var(--ok); } .azfind .cap b.bad { color: var(--bad); }
   .tag { font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 5px; }
   .tag.bl { background: rgba(239,83,80,.18); color: #ef9a9a; }
   .tag.mi { background: rgba(245,166,80,.18); color: #f5c98a; }
@@ -107,6 +117,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let platform = "chesscom";
 let LAST = null;   // {user, platform, games} — for the engine analysis feature
+let AZ = null;     // current analyzed game state for the review board
 const CAP = 400;             // max games to pull
 const CACHE_TTL = 6 * 3600e3; // reuse cache for 6h
 
@@ -426,23 +437,49 @@ async function analyzeGame(game) {
     if (drop >= 10 && myBefore > -800) {
       const bUci = P[k - 1].best; let bSan = bUci;
       try { const c = new Chess(P[k - 1].fen); const m = c.move({ from: bUci.slice(0, 2), to: bUci.slice(2, 4), promotion: bUci[4] }); if (m) bSan = m.san; } catch (e) {}
-      finds.push({ moveNo: Math.ceil(k / 2), san: plies[k - 1].san, bSan, same: plies[k - 1].uci === bUci, myBefore, myAfter, drop, fen: P[k - 1].fen, kind: drop >= 20 ? "bl" : "mi" });
+      finds.push({ moveNo: Math.ceil(k / 2), atPly: k - 1, san: plies[k - 1].san, bSan, same: plies[k - 1].uci === bUci, myBefore, myAfter, drop, fen: P[k - 1].fen, kind: drop >= 20 ? "bl" : "mi" });
     }
   }
   finds.sort((a, b) => b.drop - a.drop);
-  const nb = finds.filter(f => f.kind === "bl").length, nm = finds.filter(f => f.kind === "mi").length;
-  let html = '<div class="azsummary"><div><span class="n">' + nb + "</span> blunders</div><div><span class=\"n\">" + nm + "</span> mistakes</div><div><span class=\"n\">" + plies.length + "</span> moves" + (moves.length > CAP ? " (first " + CAP + ")" : "") + "</div></div>";
-  if (!finds.length) html += '<p style="color:var(--muted)">No clear mistakes found — clean game. 👏</p>';
-  finds.slice(0, 6).forEach(f => {
-    html += '<div class="azblun">' + boardSVG(f.fen, !meWhite)
-      + '<div class="meta"><div><span class="tag ' + f.kind + '">' + (f.kind === "bl" ? "Blunder" : "Mistake") + "</span> <b>Move " + f.moveNo + "</b></div>"
-      + '<div style="margin-top:6px">You played <b class="bad">' + esc(f.san) + "</b> (" + evalStr(f.myAfter) + ")</div>"
-      + (f.same ? "<div>That was already the engine’s pick.</div>" : '<div>Better: <b class="good">' + esc(f.bSan) + "</b> (" + evalStr(f.myBefore) + ")</div>")
-      + '<div style="color:var(--muted);font-size:.85rem;margin-top:4px">win chance −' + Math.round(f.drop) + "%</div></div></div>";
-  });
-  out.innerHTML = html;
+  AZ = { plies, P, finds, meWhite, cap: moves.length > CAP, ply: finds.length ? finds[0].atPly : 0 };
+  renderAnalysis();
   st.innerHTML = 'Done — <span style="color:var(--muted)">engine ran on your device.</span>';
   $("#azgo").disabled = false;
+}
+function renderAnalysis() {
+  const out = $("#azout"); if (!AZ || !out) return;
+  const { plies, P, finds, meWhite, cap } = AZ, n = plies.length;
+  const ply = AZ.ply = Math.max(0, Math.min(AZ.ply, n));
+  const myCp = P[ply].whiteCp * (meWhite ? 1 : -1), mw = Math.round(winpct(myCp));
+  const info = ply === 0 ? "Start position" : ("Move " + Math.ceil(ply / 2) + " · " + esc(plies[ply - 1].san));
+  const nb = finds.filter(f => f.kind === "bl").length, nm = finds.filter(f => f.kind === "mi").length;
+  let h = '<div class="azmain">'
+    + '<div class="azevalbar" title="your win chance"><i style="width:' + mw + '%"></i></div>'
+    + boardSVG(P[ply].fen, !meWhite)
+    + '<div class="aznav">'
+    + '<button class="aznavb" data-nav="first" aria-label="Start">⏮</button>'
+    + '<button class="aznavb" data-nav="prev" aria-label="Back">◀</button>'
+    + '<span class="azinfo">' + info + ' <b class="' + (myCp >= 0 ? "good" : "bad") + '">' + evalStr(myCp) + '</b></span>'
+    + '<button class="aznavb" data-nav="next" aria-label="Forward">▶</button>'
+    + '<button class="aznavb" data-nav="last" aria-label="End">⏭</button>'
+    + '</div></div>'
+    + '<div class="azsummary"><div><span class="n">' + nb + '</span> blunders</div><div><span class="n">' + nm + '</span> mistakes</div><div><span class="n">' + n + '</span> moves' + (cap ? ' (first ' + 80 + ')' : '') + '</div></div>';
+  if (!finds.length) h += '<p style="color:var(--muted)">No clear mistakes — a clean game. 👏</p>';
+  else {
+    h += '<p style="color:var(--muted);font-size:.85rem;margin:2px 0 10px">Tap a moment to jump the board to it.</p><div class="azfinds">';
+    finds.slice(0, 8).forEach(f => {
+      h += '<button class="azfind' + (f.atPly === ply ? ' on' : '') + '" data-jump="' + f.atPly + '">'
+        + '<div class="cap"><span class="tag ' + f.kind + '">' + (f.kind === "bl" ? "Blunder" : "Mistake") + '</span> Move ' + f.moveNo + '</div>'
+        + boardSVG(f.fen, !meWhite)
+        + '<div class="cap">You <b class="bad">' + esc(f.san) + '</b> · best <b class="good">' + esc(f.bSan) + '</b></div></button>';
+    });
+    h += '</div>';
+  }
+  out.innerHTML = h;
+  out.querySelectorAll("[data-nav]").forEach(bt => bt.onclick = () => {
+    const a = bt.dataset.nav; AZ.ply = a === "first" ? 0 : a === "last" ? n : a === "prev" ? ply - 1 : ply + 1; renderAnalysis();
+  });
+  out.querySelectorAll("[data-jump]").forEach(el => el.onclick = () => { AZ.ply = +el.dataset.jump; renderAnalysis(); const m = out.querySelector(".azmain"); if (m) m.scrollIntoView({ behavior: "smooth", block: "center" }); });
 }
 function wireAnalyze() {
   const sel = $("#azsel"); if (!sel || !LAST) return;
