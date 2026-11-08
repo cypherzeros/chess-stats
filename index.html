@@ -58,6 +58,8 @@
   .radarsvg { width: 100%; max-width: 320px; height: auto; display: block; margin: 0 auto; }
   .radleg { display: flex; justify-content: center; gap: 18px; margin-top: 4px; font-size: .85rem; color: var(--muted); }
   .radleg i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .azlichess { text-align: center; margin: 12px auto 0; max-width: 460px; font-size: .85rem; }
+  .azlichess a { font-weight: 600; } .azlichess span { color: var(--muted); }
   h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: .95rem; }
   a { color: var(--accent); }
@@ -90,6 +92,10 @@
   th:first-child, td:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: 0; }
   th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  table.sortable th { cursor: pointer; user-select: none; }
+  table.sortable th:hover { color: var(--fg); }
+  table.sortable th[data-sort="desc"]::after { content: " ▾"; opacity: .85; }
+  table.sortable th[data-sort="asc"]::after { content: " ▴"; opacity: .85; }
   td b { font-weight: 700; }
   .good { color: var(--ok); } .bad { color: var(--bad); }
   .row { display: grid; grid-template-columns: 3.3rem 1fr auto; align-items: center; gap: 12px; margin: 7px 0; font-size: .95rem; }
@@ -217,6 +223,14 @@ document.addEventListener("click", e => {
 { const bg = $("#burger"); if (bg) bg.onclick = () => { const sb = $("#sidebar"), bd = $("#backdrop"); const open = sb && !sb.classList.contains("open"); if (sb) sb.classList.toggle("open", open); if (bd) bd.classList.toggle("show", open); }; }
 { const bd = $("#backdrop"); if (bd) bd.onclick = closeDrawer; }
 { const pzb = $("#pzgo"); if (pzb) pzb.onclick = makePuzzles; }
+document.addEventListener("click", e => {   // click a header to sort a feed table
+  const th = e.target.closest("table.sortable th"); if (!th) return;
+  const table = th.closest("table"), ths = [...table.tHead.rows[0].cells], idx = ths.indexOf(th), tbody = table.tBodies[0]; if (!tbody) return;
+  const dir = th.getAttribute("data-sort") === "desc" ? "asc" : "desc";
+  ths.forEach(x => x.removeAttribute("data-sort")); th.setAttribute("data-sort", dir);
+  const val = row => { const c = row.cells[idx]; if (!c) return ""; const t = c.textContent.replace(/[%,]/g, "").trim(); const n = parseFloat(t); return isNaN(n) ? t.toLowerCase() : n; };
+  [...tbody.rows].sort((a, b) => { const va = val(a), vb = val(b); if (typeof va === "number" && typeof vb === "number") return dir === "desc" ? vb - va : va - vb; return dir === "desc" ? (va < vb ? 1 : va > vb ? -1 : 0) : (va > vb ? 1 : va < vb ? -1 : 0); }).forEach(r => tbody.appendChild(r));
+});
 
 function setStatus(parts) { $("#status").innerHTML = parts; }
 
@@ -261,7 +275,7 @@ async function fetchChessCom(user, onProg) {
         end: (g.end_time || 0) * 1000, color: meWhite ? "white" : "black", result,
         opening: openingFamily(opening), speed: g.time_class,
         durationSec: g.time_class === "daily" ? null : durChessCom(pgn), rating: me.rating,
-        opp: (meWhite ? g.black.username : g.white.username) || "?", oppRating: (meWhite ? g.black.rating : g.white.rating) || null, moves: pgnMoves(pgn),
+        opp: (meWhite ? g.black.username : g.white.username) || "?", oppRating: (meWhite ? g.black.rating : g.white.rating) || null, moves: pgnMoves(pgn), clocks: pgnClocks(pgn),
       });
     }
   }
@@ -284,10 +298,20 @@ function pgnMoves(pgn) {
   mt = mt.replace(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, " "); // drop results
   return mt.replace(/\s+/g, " ").trim();
 }
+function fmtClk(s) {
+  s = String(s).split(".")[0]; const p = s.split(":").map(Number);
+  if (p.length === 3) return p[0] ? p[0] + ":" + String(p[1]).padStart(2, "0") + ":" + String(p[2]).padStart(2, "0") : p[1] + ":" + String(p[2]).padStart(2, "0");
+  if (p.length === 2) return p[0] + ":" + String(p[1]).padStart(2, "0");
+  return s;
+}
+function pgnClocks(pgn) {
+  if (!pgn) return "";
+  return [...pgn.matchAll(/\[%clk\s+([\d:.]+)\]/g)].map(m => fmtClk(m[1])).join(" ");
+}
 
 async function fetchLichess(user, onProg) {
   const u = user.toLowerCase();
-  const url = `https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=${CAP}&opening=true&sort=dateDesc`;
+  const url = `https://lichess.org/api/games/user/${encodeURIComponent(user)}?max=${CAP}&opening=true&clocks=true&sort=dateDesc`;
   const r = await fetch(url, { headers: { Accept: "application/x-ndjson" } });
   if (r.status === 404) throw new Error('No lichess player called “' + user + '”.');
   if (!r.ok) throw new Error('lichess request failed (HTTP ' + r.status + ').');
@@ -311,6 +335,7 @@ async function fetchLichess(user, onProg) {
       opening: openingFamily(g.opening && g.opening.name), speed: g.speed,
       durationSec: g.speed === "correspondence" ? null : dur, rating: me && me.rating,
       opp: ((meWhite ? b : w) && (meWhite ? b : w).user && (meWhite ? b : w).user.name) || "Anonymous", oppRating: ((meWhite ? b : w) && (meWhite ? b : w).rating) || null, moves: g.moves || "",
+      clocks: (g.clocks || []).map(c => { const s = Math.round(c / 100), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }).join(" "),
     });
     if (games.length % 50 === 0) onProg('Reading games… ' + games.length);
   }
@@ -413,7 +438,7 @@ function render(user, s, meta) {
     const wp = winp(o.w, o.d, o.l), cls = o.n >= 5 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
     return `<tr><td style="text-transform:capitalize">${sp}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
   }).join("");
-  const speeds = `<table><thead><tr><th>Time control</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${spRows}</tbody></table>`;
+  const speeds = `<table class="sortable"><thead><tr><th>Time control</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${spRows}</tbody></table>`;
 
   const opTable = top => {
     if (!top.length) return '<p style="color:var(--muted);font-size:.9rem">No games.</p>';
@@ -421,7 +446,7 @@ function render(user, s, meta) {
       const wp = winp(o.w, o.d, o.l), cls = o.n >= 4 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
       return `<tr><td>${esc(name)}</td><td><b>${o.n}</b></td><td>${o.w}</td><td>${o.d}</td><td>${o.l}</td><td class="${cls}">${wp}%</td></tr>`;
     }).join("");
-    return `<table><thead><tr><th>Opening</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="sortable"><thead><tr><th>Opening</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
 
   const rate = s.topSpeeds.filter(([, o]) => o.series.length >= 3).map(([sp, o], i) =>
@@ -457,7 +482,7 @@ function render(user, s, meta) {
 }
 
 /* ---------- cache + orchestration ---------- */
-const ckey = (p, u) => "cs3:" + p + ":" + u.toLowerCase();  // bump prefix when the cached game shape changes
+const ckey = (p, u) => "cs4:" + p + ":" + u.toLowerCase();  // bump prefix when the cached game shape changes
 function readCache(p, u) { try { const v = JSON.parse(localStorage.getItem(ckey(p, u))); return v && v.games ? v : null; } catch (e) { return null; } }
 function writeCache(p, u, games) { try { localStorage.setItem(ckey(p, u), JSON.stringify({ at: Date.now(), games })); } catch (e) {} }
 const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + "m ago" : Math.round(m / 60) + "h ago"; };
@@ -581,7 +606,7 @@ async function analyzeGame(game) {
   let Chess; try { ({ Chess } = await import("./chess.js")); } catch (e) { st.innerHTML = '<span class="err">Couldn’t load the chess library.</span>'; $("#azgo").disabled = false; return; }
   let eng; try { eng = await loadEngine(); } catch (e) { st.innerHTML = '<span class="err">Couldn’t start the engine.</span>'; $("#azgo").disabled = false; return; }
   const r = await engineAnalyzeGame(game, Chess, eng, (i, n) => { st.textContent = "Analyzing… " + i + " / " + n; });
-  AZ = Object.assign({}, r, { ply: r.finds.length ? r.finds[0].atPly : 0 });
+  AZ = Object.assign({}, r, { ply: r.finds.length ? r.finds[0].atPly : 0, clocks: (game.clocks || "").split(" ").filter(Boolean) });
   renderAnalysis();
   st.innerHTML = 'Done — <span style="color:var(--muted)">engine ran on your device.</span>';
   $("#azgo").disabled = false;
@@ -591,7 +616,8 @@ function renderAnalysis() {
   const { plies, P, finds, meWhite, cap } = AZ, n = plies.length;
   const ply = AZ.ply = Math.max(0, Math.min(AZ.ply, n));
   const myCp = P[ply].whiteCp * (meWhite ? 1 : -1), mw = Math.round(winpct(myCp));
-  const info = ply === 0 ? "Start position" : ("Move " + Math.ceil(ply / 2) + " · " + esc(plies[ply - 1].san));
+  const clk = ply > 0 && AZ.clocks && AZ.clocks[ply - 1] ? " · ⏱ " + esc(AZ.clocks[ply - 1]) : "";
+  const info = ply === 0 ? "Start position" : ("Move " + Math.ceil(ply / 2) + " · " + esc(plies[ply - 1].san) + clk);
   const nb = finds.filter(f => f.kind === "bl").length, nm = finds.filter(f => f.kind === "mi").length;
   let h = '<div class="azmain">'
     + '<div class="azevalbar" title="your win chance"><i style="width:' + mw + '%"></i></div>'
@@ -602,7 +628,9 @@ function renderAnalysis() {
     + '<span class="azinfo">' + info + ' <b class="' + (myCp >= 0 ? "good" : "bad") + '">' + evalStr(myCp) + '</b></span>'
     + '<button class="aznavb" data-nav="next" aria-label="Forward">▶</button>'
     + '<button class="aznavb" data-nav="last" aria-label="End">⏭</button>'
-    + '</div></div>'
+    + '</div>'
+    + '<div class="azlichess"><a href="https://lichess.org/analysis/' + P[ply].fen.replace(/ /g, "_") + '" target="_blank" rel="noopener">Open this position in Lichess ↗</a><span> — full board, arrows & deeper engine</span></div>'
+    + '</div>'
     + '<div class="azsummary"><div><span class="n">' + nb + '</span> blunders</div><div><span class="n">' + nm + '</span> mistakes</div><div><span class="n">' + n + '</span> moves' + (cap ? ' (first ' + 80 + ')' : '') + '</div></div>';
   if (!finds.length) h += '<p style="color:var(--muted)">No clear mistakes — a clean game. 👏</p>';
   else {
@@ -674,7 +702,7 @@ async function loadCountries() {
     + tile("best record · " + winp(best.w, best.d, best.l) + "% of " + best.n, flagOf(best.code), regionName(best.code))
     + tile("rarest · " + rare.n + (rare.n === 1 ? " game" : " games"), flagOf(rare.code), regionName(rare.code))
     + "</div>";
-  html += '<table><thead><tr><th>Country</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>'
+  html += '<table class="sortable"><thead><tr><th>Country</th><th>Games</th><th>W</th><th>D</th><th>L</th><th>Win%</th></tr></thead><tbody>'
     + rows.map(r => { const wp = winp(r.w, r.d, r.l), cls = r.n >= 3 ? (wp >= 55 ? "good" : wp <= 45 ? "bad" : "") : "";
       return '<tr><td><span class="flag">' + flagOf(r.code) + "</span>" + esc(regionName(r.code)) + "</td><td><b>" + r.n + "</b></td><td>" + r.w + "</td><td>" + r.d + "</td><td>" + r.l + '</td><td class="' + cls + '">' + wp + "%</td></tr>"; }).join("")
     + "</tbody></table>";
@@ -696,7 +724,7 @@ async function makePuzzles() {
   for (let gi = 0; gi < pool.length; gi++) {
     const r = await engineAnalyzeGame(pool[gi], Chess, eng,
       (i, n) => { st.textContent = "Finding mistakes… game " + (gi + 1) + " / " + pool.length + " · " + Math.round(100 * i / Math.max(1, n)) + "%"; }, 8);
-    r.finds.filter(f => f.bUci && !f.same).forEach(f => puzzles.push({ fen: f.fen, best: f.bUci, bSan: f.bSan, meWhite: r.meWhite, moveNo: f.moveNo, kind: f.kind }));
+    r.finds.filter(f => f.bUci && !f.same).forEach(f => puzzles.push({ fen: f.fen, best: f.bUci, bSan: f.bSan, meWhite: r.meWhite, moveNo: f.moveNo, kind: f.kind, playedSan: f.san, before: f.myBefore, after: f.myAfter, drop: f.drop }));
     if (puzzles.length >= 12) break;   // enough for a session; stop early
   }
   puzzles.sort((a, b) => (a.kind === "bl" ? 0 : 1) - (b.kind === "bl" ? 0 : 1));
@@ -706,6 +734,15 @@ async function makePuzzles() {
   renderPuzzle();
   go.disabled = false; go.textContent = "New puzzles";
 }
+function pieceTip(bSan) {
+  if (!bSan) return "Look for your strongest resource.";
+  let piece;
+  if (/^O-O-O/.test(bSan)) piece = "castling queenside";
+  else if (/^O-O/.test(bSan)) piece = "castling";
+  else piece = ({ K: "a king move", Q: "a queen move", R: "a rook move", B: "a bishop move", N: "a knight move" })[bSan[0]] || "a pawn move";
+  const tags = []; if (bSan.includes("x")) tags.push("a capture"); if (bSan.includes("+")) tags.push("a check"); if (bSan.includes("=")) tags.push("a promotion");
+  return "💡 Tip: look for " + piece + (tags.length ? " — " + tags.join(" and ") : "") + ".";
+}
 function renderPuzzle() {
   const out = $("#pzout"); if (!PZ) return;
   if (PZ.i >= PZ.list.length) {
@@ -713,9 +750,10 @@ function renderPuzzle() {
     return;
   }
   const pz = PZ.list[PZ.i], toMove = pz.meWhite ? "White" : "Black";
+  PZ.tries = 0;
   out.innerHTML =
     '<div class="pzhead"><span>Puzzle ' + (PZ.i + 1) + " / " + PZ.list.length + '</span><span>solved ' + PZ.solved + "</span></div>"
-    + '<p class="pztask"><b>' + toMove + " to move</b> — you went wrong here. Find the better move.</p>"
+    + '<p class="pztask"><b>' + toMove + " to move.</b> Here it slipped from <b>" + evalStr(pz.before) + "</b> to <b>" + evalStr(pz.after) + "</b> — a <b>−" + Math.round(pz.drop) + "%</b> win-chance drop. Find the move you missed.</p>"
     + '<div id="pzboard"></div>'
     + '<div class="pzfb" id="pzfb">Tap a piece, then its destination.</div>'
     + '<div class="pzctrls"><button class="aznavb" id="pzhint">Show answer</button><button class="aznavb" id="pzskip">Skip</button><button class="aznavb" id="pznext" disabled>Next ▶</button></div>';
@@ -736,9 +774,10 @@ function mountPuzzleBoard(pz) {
       let mv = null; try { mv = board.move({ from: sel, to: sq, promotion: "q" }); } catch (e) { mv = null; }
       if (mv) {
         const ok = pz.best.slice(0, 4) === mv.from + mv.to && (pz.best.length <= 4 || pz.best[4] === (mv.promotion || ""));
-        if (ok) { done = true; const b2 = new Chess(pz.fen); b2.move({ from: mv.from, to: mv.to, promotion: mv.promotion }); host.innerHTML = boardSVG(b2.fen(), flip, { lastMove: [mv.from, mv.to] }); $("#pzfb").innerHTML = '✓ <b class="good">' + esc(pz.bSan) + "</b> — the best move!"; PZ.solved++; PZ.seen++; const nx = $("#pznext"); if (nx) nx.disabled = false; return; }
+        if (ok) { done = true; const b2 = new Chess(pz.fen); b2.move({ from: mv.from, to: mv.to, promotion: mv.promotion }); host.innerHTML = boardSVG(b2.fen(), flip, { lastMove: [mv.from, mv.to] }); $("#pzfb").innerHTML = '✓ <b class="good">' + esc(pz.bSan) + '</b> — the best move! <span style="color:var(--muted)">· you played ' + esc(pz.playedSan) + "</span>"; PZ.solved++; PZ.seen++; const nx = $("#pznext"); if (nx) nx.disabled = false; return; }
         const bd = host.querySelector("svg"); if (bd) { bd.classList.add("shake"); setTimeout(() => bd.classList.remove("shake"), 420); }
-        $("#pzfb").innerHTML = '<span class="bad">Not the best — try again.</span>'; sel = null; draw({}); return;
+        PZ.tries = (PZ.tries || 0) + 1;
+        $("#pzfb").innerHTML = '<span class="bad">Not the best — try again.</span>' + (PZ.tries >= 2 ? ' <span style="color:var(--muted)">' + pieceTip(pz.bSan) + "</span>" : ""); sel = null; draw({}); return;
       }
     }
     const piece = board.get(sq);
@@ -752,7 +791,7 @@ function revealPuzzle(pz) {
   const Chess = PZ.Chess, b2 = new Chess(pz.fen);
   let mv = null; try { mv = b2.move({ from: pz.best.slice(0, 2), to: pz.best.slice(2, 4), promotion: pz.best[4] || "q" }); } catch (e) {}
   host.innerHTML = boardSVG(mv ? b2.fen() : pz.fen, !pz.meWhite, mv ? { lastMove: [pz.best.slice(0, 2), pz.best.slice(2, 4)] } : {});
-  const fb = $("#pzfb"); if (fb) fb.innerHTML = "Best move: <b class=\"good\">" + esc(pz.bSan) + "</b>";
+  const fb = $("#pzfb"); if (fb) fb.innerHTML = "Best move: <b class=\"good\">" + esc(pz.bSan) + '</b> <span style="color:var(--muted)">· you played ' + esc(pz.playedSan) + "</span>";
   PZ.seen++; const nx = $("#pznext"); if (nx) nx.disabled = false;
 }
 function wireAnalyze() {
