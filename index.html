@@ -203,9 +203,8 @@ async function fetchChessCom(user, onProg) {
     const mg = (await r.json()).games || [];
     for (let k = mg.length - 1; k >= 0; k--) {
       const g = mg[k]; if (g.rules !== "chess") continue;
+      if (g.rated === false) continue;          // skip unrated games — bots, coach, casual
       const meWhite = (g.white.username || "").toLowerCase() === u;
-      const oppName = (meWhite ? g.black.username : g.white.username) || "";
-      if (/bot\d*$/i.test(oppName)) continue;   // best-effort: skip bot accounts (…Bot)
       const me = meWhite ? g.white : g.black;
       const result = me.result === "win" ? "win"
         : ["checkmated", "resigned", "timeout", "abandoned", "lose", "bughousepartnerlose"].includes(me.result) ? "loss" : "draw";
@@ -254,6 +253,7 @@ async function fetchLichess(user, onProg) {
     let g; try { g = JSON.parse(line); } catch (e) { continue; }
     const w = g.players && g.players.white, b = g.players && g.players.black;
     const nm = s => s && s.user && s.user.name && s.user.name.toLowerCase();
+    if (g.rated === false) continue;                               // skip unrated — bots, casual
     if ((w && w.aiLevel) || (b && b.aiLevel)) continue;            // Stockfish AI game
     const meWhite = nm(w) === u;
     const opp0 = meWhite ? b : w;
@@ -412,7 +412,7 @@ function render(user, s, meta) {
 }
 
 /* ---------- cache + orchestration ---------- */
-const ckey = (p, u) => "cs2:" + p + ":" + u.toLowerCase();  // bump prefix when the cached game shape changes
+const ckey = (p, u) => "cs3:" + p + ":" + u.toLowerCase();  // bump prefix when the cached game shape changes
 function readCache(p, u) { try { const v = JSON.parse(localStorage.getItem(ckey(p, u))); return v && v.games ? v : null; } catch (e) { return null; } }
 function writeCache(p, u, games) { try { localStorage.setItem(ckey(p, u), JSON.stringify({ at: Date.now(), games })); } catch (e) {} }
 const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + "m ago" : Math.round(m / 60) + "h ago"; };
