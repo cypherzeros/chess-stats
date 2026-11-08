@@ -496,9 +496,9 @@ function sfAnalyse(eng, fen, depth) {
   });
 }
 const winpct = cp => { cp = Math.max(-2000, Math.min(2000, cp)); return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1); };
-async function engineAnalyzeGame(game, Chess, eng, onProg) {
+async function engineAnalyzeGame(game, Chess, eng, onProg, depth) {
   const moves = (game.moves || "").trim().split(/\s+/).filter(Boolean);
-  const DEPTH = 10, CAP = 80, meWhite = game.color === "white";
+  const DEPTH = depth || 10, CAP = 80, meWhite = game.color === "white";
   const ch = new Chess(), plies = [];
   for (let i = 0; i < moves.length && i < CAP; i++) {
     const fenBefore = ch.fen(); let mv; try { mv = ch.move(moves[i]); } catch (e) { mv = null; } if (!mv) break;
@@ -663,16 +663,17 @@ function wireCountry() { const b = $("#ctrybtn"); if (b) b.onclick = loadCountri
 async function makePuzzles() {
   const out = $("#pzout"), st = $("#pzstatus"), go = $("#pzgo");
   if (!LAST) { out.innerHTML = '<p style="color:var(--muted)">Load your games on the Feed tab first.</p>'; return; }
-  const pool = LAST.games.filter(g => g.moves && g.moves.trim()).slice(0, 6);
+  const pool = LAST.games.filter(g => g.moves && g.moves.trim()).slice(0, 5);
   if (!pool.length) { out.innerHTML = '<p class="err">No games with moves to analyse.</p>'; return; }
-  go.disabled = true; out.innerHTML = ""; st.textContent = "Loading engine…";
+  go.disabled = true; out.innerHTML = ""; st.textContent = "Starting the engine… (first run loads it)";
   let Chess; try { ({ Chess } = await import("./chess.js")); } catch (e) { st.innerHTML = '<span class="err">Couldn’t load the chess library.</span>'; go.disabled = false; return; }
   let eng; try { eng = await loadEngine(); } catch (e) { st.innerHTML = '<span class="err">Couldn’t start the engine.</span>'; go.disabled = false; return; }
   const puzzles = [];
   for (let gi = 0; gi < pool.length; gi++) {
-    st.textContent = "Analysing game " + (gi + 1) + " / " + pool.length + "…";
-    const r = await engineAnalyzeGame(pool[gi], Chess, eng, null);
+    const r = await engineAnalyzeGame(pool[gi], Chess, eng,
+      (i, n) => { st.textContent = "Finding mistakes… game " + (gi + 1) + " / " + pool.length + " · " + Math.round(100 * i / Math.max(1, n)) + "%"; }, 8);
     r.finds.filter(f => f.bUci && !f.same).forEach(f => puzzles.push({ fen: f.fen, best: f.bUci, bSan: f.bSan, meWhite: r.meWhite, moveNo: f.moveNo, kind: f.kind }));
+    if (puzzles.length >= 12) break;   // enough for a session; stop early
   }
   puzzles.sort((a, b) => (a.kind === "bl" ? 0 : 1) - (b.kind === "bl" ? 0 : 1));
   st.textContent = "";
